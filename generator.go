@@ -16,7 +16,7 @@ import (
 	"github.com/Masterminds/sprig"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	
+
 	"github.com/jjjordanmsft/az-template/keyvault"
 )
 

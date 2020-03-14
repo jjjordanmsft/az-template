@@ -126,8 +126,8 @@ func (c *Client) ListCertificates() ([]*keyvault.CertificateItem, error) {
 
 		for ; lst.NotDone(); lst.Next() {
 			for _, crt := range lst.Values() {
-				c := &crt
-				results = append(results, c)
+				c := crt
+				results = append(results, &c)
 			}
 		}
 

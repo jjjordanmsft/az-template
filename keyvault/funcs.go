@@ -1,6 +1,9 @@
 package keyvault
 
 import (
+	"encoding/base64"
+	"encoding/hex"
+	"net/url"
 	"strings"
 	"text/template"
 )
@@ -13,6 +16,7 @@ type certListResult struct {
 	Name       string
 	Thumbprint string
 	Version    string
+	ID         string
 	Tags       map[string]string
 }
 
@@ -20,6 +24,7 @@ type certResult struct {
 	Name        string
 	Thumbprint  string
 	Version     string
+	ID          string
 	Certificate interface{}
 	Tags        map[string]string
 }
@@ -27,11 +32,13 @@ type certResult struct {
 type secretListResult struct {
 	Name    string
 	Version string
+	ID      string
 }
 
 type secretResult struct {
 	Name    string
 	Version string
+	ID      string
 	Value   string
 	Tags    map[string]string
 }
@@ -61,10 +68,11 @@ func (f *Funcs) getSecret(secret string, kvname ...string) (*secretResult, error
 		return nil, err
 	}
 
-	name, version := splitID(b.ID)
+	id, name, version := splitID(b.ID)
 	return &secretResult{
 		Name:    name,
 		Version: version,
+		ID:      id,
 		Value:   *b.Value,
 		Tags:    cvtTags(b.Tags),
 	}, nil
@@ -82,11 +90,12 @@ func (f *Funcs) listCertificates(kvname ...string) (results []*certListResult, e
 	}
 
 	for _, ci := range lst {
-		name, version := splitID(ci.ID)
+		id, name, version := splitID(ci.ID)
 		results = append(results, &certListResult{
 			Name:       name,
 			Version:    version,
-			Thumbprint: *ci.X509Thumbprint,
+			ID:         id,
+			Thumbprint: decodeThumbprint(*ci.X509Thumbprint),
 			Tags:       cvtTags(ci.Tags),
 		})
 	}
@@ -105,11 +114,12 @@ func (f *Funcs) getCertificate(cert string, kvname ...string) (*certResult, erro
 		return nil, err
 	}
 
-	name, version := splitID(b.ID)
+	id, name, version := splitID(b.ID)
 	return &certResult{
 		Name:        name,
-		Thumbprint:  *b.X509Thumbprint,
+		Thumbprint:  decodeThumbprint(*b.X509Thumbprint),
 		Version:     version,
+		ID:          id,
 		Certificate: p,
 		Tags:        cvtTags(b.Tags),
 	}, nil
@@ -128,15 +138,31 @@ func cvtTags(tags map[string]*string) map[string]string {
 	return result
 }
 
-func splitID(id *string) (string, string) {
+func splitID(id *string) (string, string, string) {
 	if id == nil {
-		return "", ""
+		return "", "", ""
 	}
 
-	idParts := strings.Split(*id, "/")
-	if len(idParts) == 1 {
-		return idParts[0], ""
-	} else {
-		return idParts[0], idParts[1]
+	u, err := url.Parse(*id)
+	if err != nil {
+		return *id, "", ""
 	}
+
+	uparts := strings.Split(u.Path, "/")
+	if len(uparts) >= 4 {
+		return *id, uparts[2], uparts[3]
+	} else if len(uparts) >= 3 {
+		return *id, uparts[2], ""
+	} else {
+		return *id, "", ""
+	}
+}
+
+func decodeThumbprint(thumb string) string {
+	dc, err := base64.RawURLEncoding.DecodeString(thumb)
+	if err != nil {
+		return ""
+	}
+
+	return hex.EncodeToString(dc)
 }

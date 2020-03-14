@@ -49,7 +49,7 @@ func (kv *Keyvaults) GetClient(kvname string) (*Client, error) {
 		client:        client,
 		secretCache:   make(map[string]*secretCacheItem),
 		certCache:     make(map[string]*certCacheItem),
-		certListCache: &certListCacheItem{},
+		certListCache: nil,
 	}
 
 	kv.clients[kvname] = kvc
