@@ -7,10 +7,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Azure/go-autorest/autorest/azure"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/jjjordanmsft/az-template/debounce"
 	"github.com/jjjordanmsft/az-template/keyvault"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const defaultRunTimeout = 5 * time.Minute
@@ -21,24 +22,50 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Load config file.
 	cfg, err := loadConfig(os.Args[1])
 	if err != nil {
 		log.WithError(err).Fatal("Error loading config")
 		os.Exit(1)
 	}
 
-	keyvaults, err := keyvault.NewKeyvaults()
+	// Find Azure environment
+	var azenv azure.Environment
+	if cfg.Environment != nil {
+		env, err := azure.EnvironmentFromName(*cfg.Environment)
+		if err != nil {
+			log.WithError(err).Fatalf("Error loading azure environment '%s'", *cfg.Environment)
+			os.Exit(1)
+		}
+
+		azenv = env
+	} else if cfg.EnvironmentFile != nil {
+		env, err := azure.EnvironmentFromFile(*cfg.EnvironmentFile)
+		if err != nil {
+			log.WithError(err).Fatalf("Error loading azure environment from file '%s'", *cfg.EnvironmentFile)
+			os.Exit(1)
+		}
+
+		azenv = env
+	} else {
+		azenv = azure.PublicCloud
+	}
+
+	// Initialize keyvaults collection
+	keyvaults, err := keyvault.NewKeyvaults(azenv)
 	if err != nil {
 		log.WithError(err).Fatal("Error initializing keyvault")
 		os.Exit(1)
 	}
 
+	// Create Generators for each step from config file
 	generators, err := loadGenerators(cfg, keyvaults)
 	if err != nil {
 		log.WithError(err).Fatal("Error loading generators")
 		os.Exit(1)
 	}
 
+	// Process all outputs immediately. Exit if period/listen unspecified.
 	success := generateAll(keyvaults, generators)
 	if cfg.Period == nil && cfg.Listen == nil {
 		// No background processes
@@ -50,12 +77,14 @@ func main() {
 		}
 	}
 
+	// Start the listener if one is specified
 	ping := make(chan struct{})
 	if err := startListener(cfg, keyvaults, ping); err != nil {
 		log.WithError(err).Fatal("Error starting listener")
 		os.Exit(1)
 	}
 
+	// Start the period ticker if one is specified
 	var ticker <-chan time.Time
 	if cfg.Period != nil {
 		ticker = time.Tick(time.Duration(*cfg.Period))
@@ -63,6 +92,7 @@ func main() {
 		ticker = make(<-chan time.Time)
 	}
 
+	// Listen for signals
 	sigch := make(chan os.Signal, 2)
 	signal.Notify(sigch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 
@@ -71,6 +101,7 @@ func main() {
 		panic(err)
 	}
 
+	// Endless loop
 	for {
 		select {
 		case sig := <-sigch:
@@ -93,6 +124,7 @@ func main() {
 	}
 }
 
+// generateAll processes all outputs
 func generateAll(kv *keyvault.Keyvaults, generators []*Generator) bool {
 	log.Info("Generating output")
 	kv.Invalidate()
@@ -109,6 +141,7 @@ func generateAll(kv *keyvault.Keyvaults, generators []*Generator) bool {
 	return success
 }
 
+// loadGenerators creates generators for each output in the config
 func loadGenerators(cfg *config, kv *keyvault.Keyvaults) ([]*Generator, error) {
 	var baseCtx keyvault.TemplateContext = kv
 	if cfg.Keyvault != nil {

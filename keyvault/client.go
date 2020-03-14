@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Client presents a simple interface to a keyvault client and provides caching.
 type Client struct {
 	name          string
 	baseUrl       string
@@ -38,10 +39,12 @@ type certListCacheItem struct {
 	results []*keyvault.CertificateItem
 }
 
+// Name returns the client name
 func (c *Client) Name() string {
 	return c.name
 }
 
+// GetSecret retrieves the latest version of the specified secret
 func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, error) {
 	cache, ok := c.secretCache[secret]
 	if !ok {
@@ -73,6 +76,7 @@ func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, error) {
 	}
 }
 
+// GetCertificate retrieves the latest version of the specified certificate
 func (c *Client) GetCertificate(cert string) (*keyvault.CertificateBundle, *x509.Certificate, error) {
 	cache, ok := c.certCache[cert]
 	if !ok {
@@ -108,6 +112,7 @@ func (c *Client) GetCertificate(cert string) (*keyvault.CertificateBundle, *x509
 	}
 }
 
+// ListCertificates returns all certificates in the keyvault
 func (c *Client) ListCertificates() ([]*keyvault.CertificateItem, error) {
 	if c.certListCache == nil {
 		c.certListCache = &certListCacheItem{
@@ -215,6 +220,7 @@ func (c *Client) getLatestCertificateVersion(cert string) (string, error) {
 	return idVersion, nil
 }
 
+// Invalidate clears all caches for this client.
 func (c *Client) Invalidate() {
 	for _, scache := range c.secretCache {
 		scache.stale = true

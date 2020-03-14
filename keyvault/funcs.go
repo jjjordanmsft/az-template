@@ -8,10 +8,13 @@ import (
 	"text/template"
 )
 
+// Funcs provides template functions with a TemplateContext to look up
+// keyvault Clients.
 type Funcs struct {
 	TemplateContext
 }
 
+// certListResult is the type returned by the listcerts function.
 type certListResult struct {
 	Name       string
 	Thumbprint string
@@ -20,6 +23,7 @@ type certListResult struct {
 	Tags       map[string]string
 }
 
+// certResult is the type returned by the cert function.
 type certResult struct {
 	Name        string
 	Thumbprint  string
@@ -29,12 +33,14 @@ type certResult struct {
 	Tags        map[string]string
 }
 
+// secretListResult is the type returned by the (non-existent) listsecrets function.
 type secretListResult struct {
 	Name    string
 	Version string
 	ID      string
 }
 
+// secretResult is the type returned by the secret function.
 type secretResult struct {
 	Name    string
 	Version string
@@ -43,6 +49,7 @@ type secretResult struct {
 	Tags    map[string]string
 }
 
+// Populate adds keyvault template functions to the specified FuncMap
 func (f *Funcs) Populate(m template.FuncMap) {
 	m["listcerts"] = f.listCertificates
 	m["secret"] = f.getSecret
@@ -125,6 +132,7 @@ func (f *Funcs) getCertificate(cert string, kvname ...string) (*certResult, erro
 	}, nil
 }
 
+// cvtTags rewrites a map[string]*string such that templates can use it
 func cvtTags(tags map[string]*string) map[string]string {
 	result := make(map[string]string)
 	for k, v := range tags {
@@ -138,6 +146,7 @@ func cvtTags(tags map[string]*string) map[string]string {
 	return result
 }
 
+// splitID splits a keyvault ID into: id, name, version
 func splitID(id *string) (string, string, string) {
 	if id == nil {
 		return "", "", ""

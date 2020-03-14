@@ -15,6 +15,8 @@ type listener struct {
 	password string
 }
 
+// startListener creates an HTTP server that sends back pings on the specified channel
+// when it is hit with the password specified in the config.
 func startListener(cfg *config, ctx keyvault.TemplateContext, ping chan struct{}) error {
 	if cfg.Listen == nil {
 		return nil
@@ -38,6 +40,7 @@ func startListener(cfg *config, ctx keyvault.TemplateContext, ping chan struct{}
 	return nil
 }
 
+// getPassword fetches a password from a keyvault, and refreshes at the specified period.
 func (l *listener) getPassword(cfg *config, ctx keyvault.TemplateContext) error {
 	if cfg.Password == nil || cfg.Keyvault == nil {
 		return nil
@@ -74,6 +77,7 @@ func (l *listener) getPassword(cfg *config, ctx keyvault.TemplateContext) error 
 	return nil
 }
 
+// ServeHTTP validates credentials and sends the ping.
 func (l *listener) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if l.password != "" {
 		_, pass, ok := r.BasicAuth()

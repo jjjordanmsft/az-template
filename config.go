@@ -8,17 +8,21 @@ import (
 	"github.com/pkg/errors"
 )
 
+// config represents the top-level object from the config TOML
 type config struct {
-	Period     *duration
-	Keyvault   *string
-	Listen     *string
-	Password   *string
-	RunTimeout *duration
+	Period          *duration
+	Keyvault        *string
+	Listen          *string
+	Password        *string
+	RunTimeout      *duration
+	Environment     *string
+	EnvironmentFile *string
 
 	File     []configFile
 	Template []configTemplate
 }
 
+// configFile directs this to write a secret directly to output
 type configFile struct {
 	Keyvault   string
 	Secret     string
@@ -29,6 +33,7 @@ type configFile struct {
 	RunTimeout *duration
 }
 
+// configTemplate directs this to process a text template
 type configTemplate struct {
 	Keyvault   string
 	Input      string
@@ -39,8 +44,10 @@ type configTemplate struct {
 	RunTimeout *duration
 }
 
+// duration wraps time.Duration in a manner that can be parsed
 type duration time.Duration
 
+// loadConfig reads and decodes the specified TOML file
 func loadConfig(file string) (*config, error) {
 	fd, err := os.Open(file)
 	if err != nil {

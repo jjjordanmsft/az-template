@@ -22,6 +22,7 @@ import (
 	"github.com/jjjordanmsft/az-template/keyvault"
 )
 
+// Generator encapsulates the process for generating an output file.
 type Generator struct {
 	Name        string
 	Func        func() ([]byte, error)
@@ -33,6 +34,9 @@ type Generator struct {
 	hash        string
 }
 
+// Generate processes the full generation of the output file.  If the output
+// is the same as the last pass, then it won't be rewritten.  If the output
+// has changed, this will also invoke the Run command, if any was specified.
 func (gen *Generator) Generate() error {
 	log.Infof("Generating: %s", gen.Name)
 	dat, err := gen.Func()
@@ -77,6 +81,7 @@ func (gen *Generator) Generate() error {
 	return nil
 }
 
+// run invokes the Run command associated with this output.
 func (gen *Generator) run() error {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -101,6 +106,7 @@ func (gen *Generator) run() error {
 	}
 }
 
+// downloadSecretToFile creates a Generator for a full file-generation step.
 func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Generator, error) {
 	kv, err := ctx.GetClient(cfg.Keyvault)
 	if err != nil {
@@ -125,6 +131,7 @@ func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Genera
 	}, nil
 }
 
+// processTemplate creates a Generator for a template processing step.
 func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate) (*Generator, error) {
 	if cfg.Keyvault != "" {
 		ctx = keyvault.WrapContext(ctx, cfg.Keyvault)
@@ -156,6 +163,7 @@ func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate) (*Generat
 	}, nil
 }
 
+// Sets the owner for the specified file, and deletes it if it fails.
 func setOwnerOrDelete(file, owner string) error {
 	err := setOwner(file, owner)
 	if err != nil {
@@ -170,6 +178,7 @@ func setOwnerOrDelete(file, owner string) error {
 	return err
 }
 
+// Sets the owner:group for the specified file
 func setOwner(file, owner string) error {
 	if owner == "" {
 		return nil

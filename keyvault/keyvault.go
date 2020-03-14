@@ -6,18 +6,23 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault"
 	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
 	"github.com/pkg/errors"
 )
 
+// Keyvaults tracks keyvault clients and provides authorization.
 type Keyvaults struct {
 	authorizer autorest.Authorizer
 	clients    map[string]*Client
+	env        azure.Environment
 }
 
-func NewKeyvaults() (*Keyvaults, error) {
+// NewKeyvaults creates a new Keyvaults tracker object with the specified
+// Azure environment
+func NewKeyvaults(env azure.Environment) (*Keyvaults, error) {
 	msicfg := auth.MSIConfig{
-		Resource: "https://vault.azure.net",
+		Resource: env.KeyVaultEndpoint,
 	}
 
 	authorizer, err := msicfg.Authorizer()
@@ -28,9 +33,11 @@ func NewKeyvaults() (*Keyvaults, error) {
 	return &Keyvaults{
 		authorizer: authorizer,
 		clients:    make(map[string]*Client),
+		env:        env,
 	}, nil
 }
 
+// Implements the base TemplateContext interface for the keyvaults collection
 func (kv *Keyvaults) GetClient(kvname string) (*Client, error) {
 	if client, ok := kv.clients[kvname]; ok {
 		return client, nil
@@ -45,7 +52,7 @@ func (kv *Keyvaults) GetClient(kvname string) (*Client, error) {
 
 	kvc := &Client{
 		name:          kvname,
-		baseUrl:       fmt.Sprintf("https://%s.vault.azure.net", strings.ToLower(kvname)),
+		baseUrl:       fmt.Sprintf("https://%s.%s", strings.ToLower(kvname), kv.env.KeyVaultDNSSuffix),
 		client:        client,
 		secretCache:   make(map[string]*secretCacheItem),
 		certCache:     make(map[string]*certCacheItem),
@@ -56,6 +63,7 @@ func (kv *Keyvaults) GetClient(kvname string) (*Client, error) {
 	return kvc, nil
 }
 
+// Invalidates all keyvault clients' caches
 func (kv *Keyvaults) Invalidate() {
 	for _, client := range kv.clients {
 		client.Invalidate()
