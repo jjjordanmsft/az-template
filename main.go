@@ -13,6 +13,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const defaultRunTimeout = 5 * time.Minute
+
 func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <config.toml>\n", os.Args[0])
@@ -131,6 +133,18 @@ func loadGenerators(cfg *config, kv *keyvault.Keyvaults) ([]*Generator, error) {
 		}
 
 		results = append(results, gen)
+	}
+
+	runTimeout := cfg.RunTimeout.DurationPtr()
+	if runTimeout == nil {
+		to := defaultRunTimeout
+		runTimeout = &to
+	}
+
+	for _, gen := range results {
+		if gen.RunTimeout == nil {
+			gen.RunTimeout = runTimeout
+		}
 	}
 
 	return results, nil

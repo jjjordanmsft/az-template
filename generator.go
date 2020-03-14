@@ -2,16 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"os/exec"
 	"os/user"
 	"path"
 	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
+	"time"
 
 	"github.com/Masterminds/sprig"
 	"github.com/pkg/errors"
@@ -26,7 +28,8 @@ type Generator struct {
 	OutputFile  string
 	OutputMode  os.FileMode
 	OutputOwner string
-	Sentinel    string
+	Run         string
+	RunTimeout  *time.Duration
 	hash        string
 }
 
@@ -63,15 +66,39 @@ func (gen *Generator) Generate() error {
 		return err
 	}
 
-	gen.hash = sb
-
-	if gen.Sentinel != "" {
-		if err := ioutil.WriteFile(gen.Sentinel, []byte{}, 0666); err != nil {
-			log.WithError(err).Warnf("Failed to update sentinel: %s", gen.Sentinel)
+	if gen.Run != "" {
+		if err := gen.run(); err != nil {
+			return err
 		}
 	}
 
+	gen.hash = sb
+
 	return nil
+}
+
+func (gen *Generator) run() error {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	ctx := context.Background()
+	if gen.RunTimeout != nil {
+		ctx, _ = context.WithTimeout(ctx, *gen.RunTimeout)
+	}
+
+	err := exec.CommandContext(ctx, shell, "-c", gen.Run).Run()
+	if err == nil {
+		log.Infof("Command \"%s\" completed successfully", gen.Run)
+		return nil
+	} else if exerr, ok := err.(*exec.ExitError); ok {
+		log.WithFields(log.Fields{"Code": exerr.ExitCode()}).Errorf("Command \"%s\" exited with error", gen.Run)
+		log.Info("Process output:\n", exerr.Stderr)
+		return errors.New("Process terminated abnormally")
+	} else {
+		return err
+	}
 }
 
 func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Generator, error) {
@@ -93,7 +120,8 @@ func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Genera
 		OutputFile:  cfg.Output,
 		OutputMode:  getMode(cfg.Mode, 0600),
 		OutputOwner: cfg.Owner,
-		Sentinel:    cfg.Sentinel,
+		Run:         cfg.Run,
+		RunTimeout:  cfg.RunTimeout.DurationPtr(),
 	}, nil
 }
 
@@ -123,7 +151,8 @@ func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate) (*Generat
 		OutputFile:  cfg.Output,
 		OutputMode:  getMode(cfg.Mode, 0600),
 		OutputOwner: cfg.Owner,
-		Sentinel:    cfg.Sentinel,
+		Run:         cfg.Run,
+		RunTimeout:  cfg.RunTimeout.DurationPtr(),
 	}, nil
 }
 

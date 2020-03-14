@@ -9,31 +9,34 @@ import (
 )
 
 type config struct {
-	Period   *duration
-	Keyvault *string
-	Listen   *string
-	Password *string
+	Period     *duration
+	Keyvault   *string
+	Listen     *string
+	Password   *string
+	RunTimeout *duration
 
 	File     []configFile
 	Template []configTemplate
 }
 
 type configFile struct {
-	Keyvault string
-	Secret   string
-	Output   string
-	Mode     *int
-	Owner    string
-	Sentinel string
+	Keyvault   string
+	Secret     string
+	Output     string
+	Mode       *int
+	Owner      string
+	Run        string
+	RunTimeout *duration
 }
 
 type configTemplate struct {
-	Keyvault string
-	Input    string
-	Output   string
-	Mode     *int
-	Owner    string
-	Sentinel string
+	Keyvault   string
+	Input      string
+	Output     string
+	Mode       *int
+	Owner      string
+	Run        string
+	RunTimeout *duration
 }
 
 type duration time.Duration
@@ -57,4 +60,21 @@ func (d *duration) UnmarshalText(text []byte) error {
 	dur, err := time.ParseDuration(string(text))
 	*d = duration(dur)
 	return err
+}
+
+func (d *duration) DurationPtr() *time.Duration {
+	if d == nil {
+		return nil
+	} else {
+		td := time.Duration(*d)
+		return &td
+	}
+}
+
+func (d *duration) Duration() time.Duration {
+	if d == nil {
+		return time.Duration(0)
+	} else {
+		return time.Duration(*d)
+	}
 }
