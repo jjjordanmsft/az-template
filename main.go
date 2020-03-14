@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jjjordanmsft/az-template/debounce"
 	"github.com/jjjordanmsft/az-template/keyvault"
 
 	log "github.com/sirupsen/logrus"
@@ -63,6 +64,11 @@ func main() {
 	sigch := make(chan os.Signal, 2)
 	signal.Notify(sigch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 
+	db, err := debounce.NewFromString("5s:20s")
+	if err != nil {
+		panic(err)
+	}
+
 	for {
 		select {
 		case sig := <-sigch:
@@ -77,7 +83,10 @@ func main() {
 
 		case <-ticker:
 		case <-ping:
-			generateAll(keyvaults, generators)
+			db.Trigger()
+
+		case <-db.Chan():
+			go generateAll(keyvaults, generators)
 		}
 	}
 }
