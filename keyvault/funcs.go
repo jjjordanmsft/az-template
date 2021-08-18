@@ -31,14 +31,16 @@ type CertResult struct {
 	Version     string
 	ID          string
 	Certificate *x509.Certificate
+	Chain       []*x509.Certificate
 	Tags        map[string]string
 }
 
-// SecretListResult is the type returned by the (non-existent) listsecrets function.
+// SecretListResult is the type returned by the listsecrets function.
 type SecretListResult struct {
 	Name    string
 	Version string
 	ID      string
+	Managed bool
 }
 
 // SecretResult is the type returned by the secret function.
@@ -48,7 +50,9 @@ type SecretResult struct {
 	ID          string
 	Value       string
 	Certificate *x509.Certificate
+	Chain       []*x509.Certificate
 	Key         interface{}
+	Managed     bool
 	Tags        map[string]string
 }
 
@@ -95,7 +99,9 @@ func (f *Funcs) getSecret(secret string, kvname ...string) (*SecretResult, error
 		Value:       *b.Value,
 		Tags:        cvtTags(b.Tags),
 		Certificate: p.Certificate,
+		Chain:       p.Chain,
 		Key:         p.Key,
+		Managed:     b.Managed != nil && *b.Managed,
 	}, nil
 }
 
@@ -141,7 +147,8 @@ func (f *Funcs) getCertificate(cert string, kvname ...string) (*CertResult, erro
 		Thumbprint:  decodeThumbprint(*b.X509Thumbprint),
 		Version:     version,
 		ID:          id,
-		Certificate: p,
+		Certificate: p.Certificate,
+		Chain:       p.Chain,
 		Tags:        cvtTags(b.Tags),
 	}, nil
 }

@@ -30,11 +30,12 @@ type secretCacheItem struct {
 	stale          bool
 	currentVersion string
 	versions       map[string]*keyvault.SecretBundle
-	parsed         map[string]*parsedSecret
+	parsed         map[string]*ParsedSecret
 }
 
-type parsedSecret struct {
+type ParsedSecret struct {
 	Certificate *x509.Certificate
+	Chain       []*x509.Certificate
 	Key         interface{}
 }
 
@@ -42,7 +43,7 @@ type certCacheItem struct {
 	stale          bool
 	currentVersion string
 	versions       map[string]*keyvault.CertificateBundle
-	parsed         map[string]*x509.Certificate
+	parsed         map[string]*ParsedSecret
 }
 
 type keyCacheItem struct {
@@ -62,13 +63,13 @@ func (c *Client) Name() string {
 }
 
 // GetSecret retrieves the latest version of the specified secret
-func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, *parsedSecret, error) {
+func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, *ParsedSecret, error) {
 	cache, ok := c.secretCache[secret]
 	if !ok {
 		cache = &secretCacheItem{
 			stale:    true,
 			versions: make(map[string]*keyvault.SecretBundle),
-			parsed:   make(map[string]*parsedSecret),
+			parsed:   make(map[string]*ParsedSecret),
 		}
 
 		c.secretCache[secret] = cache
@@ -97,13 +98,13 @@ func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, *parsedSecret
 }
 
 // GetCertificate retrieves the latest version of the specified certificate
-func (c *Client) GetCertificate(cert string) (*keyvault.CertificateBundle, *x509.Certificate, error) {
+func (c *Client) GetCertificate(cert string) (*keyvault.CertificateBundle, *ParsedSecret, error) {
 	cache, ok := c.certCache[cert]
 	if !ok {
 		cache = &certCacheItem{
 			stale:    true,
 			versions: make(map[string]*keyvault.CertificateBundle),
-			parsed:   make(map[string]*x509.Certificate),
+			parsed:   make(map[string]*ParsedSecret),
 		}
 
 		c.certCache[cert] = cache
@@ -123,12 +124,14 @@ func (c *Client) GetCertificate(cert string) (*keyvault.CertificateBundle, *x509
 		return bundle, cache.parsed[cache.currentVersion], nil
 	} else if bundle, err := c.client.GetCertificate(context.Background(), c.baseUrl, cert, cache.currentVersion); err != nil {
 		return nil, nil, err
-	} else if xcert, err := x509.ParseCertificate(*bundle.Cer); err != nil {
+	} else if xcert, err := x509.ParseCertificates(*bundle.Cer); err != nil {
 		return nil, nil, err
 	} else {
+		p := &ParsedSecret{}
+		p.AddCerts(xcert)
 		cache.versions[cache.currentVersion] = &bundle
-		cache.parsed[cache.currentVersion] = xcert
-		return &bundle, xcert, nil
+		cache.parsed[cache.currentVersion] = p
+		return &bundle, p, nil
 	}
 }
 
@@ -352,37 +355,59 @@ func (c *Client) Invalidate() {
 	c.certListCache.stale = true
 }
 
-func parseSecret(sec *keyvault.SecretBundle) *parsedSecret {
-	res := &parsedSecret{}
+func parseSecret(sec *keyvault.SecretBundle) *ParsedSecret {
+	var pems []*pem.Block
 	if raw, err := base64.StdEncoding.DecodeString(*sec.Value); err == nil {
-		pk, crt, err := pkcs12.Decode(raw, "")
-		if err == nil {
-			res.Certificate = crt
-			res.Key = pk
+		pems, err = pkcs12.ToPEM(raw, "")
+		if err != nil {
+			return &ParsedSecret{}
 		}
 	} else {
-		for _, p := range readPEMs([]byte(*sec.Value)) {
-			switch p.Type {
-			case "PRIVATE KEY":
-				if k, err := x509.ParsePKCS8PrivateKey(p.Bytes); err == nil {
-					res.Key = k
-				}
-			case "RSA PRIVATE KEY":
-				if k, err := x509.ParsePKCS1PrivateKey(p.Bytes); err == nil {
-					res.Key = k
-				}
-			case "EC PRIVATE KEY":
-				if k, err := x509.ParseECPrivateKey(p.Bytes); err == nil {
-					res.Key = k
-				}
-			case "CERTIFICATE":
-				if c, err := x509.ParseCertificate(p.Bytes); err == nil {
-					res.Certificate = c
-				}
+		pems = readPEMs([]byte(*sec.Value))
+	}
+
+	return parsePEMs(pems)
+}
+
+func ParsePEMData(data []byte) (*ParsedSecret, error) {
+	pems := readPEMs(data)
+	if len(pems) == 0 {
+		return nil, errors.New("No PEM blocks found")
+	}
+
+	return parsePEMs(pems), nil
+}
+
+func parsePEMs(pems []*pem.Block) *ParsedSecret {
+	res := &ParsedSecret{}
+
+	var certs []*x509.Certificate
+	for _, p := range pems {
+		switch p.Type {
+		case "PRIVATE KEY":
+			if k, err := x509.ParsePKCS8PrivateKey(p.Bytes); err == nil {
+				res.Key = k
+			} else if k, err := x509.ParsePKCS1PrivateKey(p.Bytes); err == nil { // NOTE: This can happen if we went the pkcs12 route, above
+				res.Key = k
+			} else if k, err := x509.ParseECPrivateKey(p.Bytes); err == nil {
+				res.Key = k
+			}
+		case "RSA PRIVATE KEY":
+			if k, err := x509.ParsePKCS1PrivateKey(p.Bytes); err == nil {
+				res.Key = k
+			}
+		case "EC PRIVATE KEY":
+			if k, err := x509.ParseECPrivateKey(p.Bytes); err == nil {
+				res.Key = k
+			}
+		case "CERTIFICATE":
+			if c, err := x509.ParseCertificate(p.Bytes); err == nil {
+				certs = append(certs, c)
 			}
 		}
 	}
 
+	res.AddCerts(certs)
 	return res
 }
 
@@ -397,4 +422,64 @@ func readPEMs(data []byte) []*pem.Block {
 		result = append(result, p)
 		data = rest
 	}
+}
+
+func (ps *ParsedSecret) AddCerts(certs []*x509.Certificate) error {
+	leaf, chain, err := sortCerts(certs)
+	if err == nil {
+		ps.Certificate = leaf
+		ps.Chain = chain
+	} else if len(certs) == 1 {
+		ps.Certificate = certs[0]
+		ps.Chain = certs
+	} else {
+		return err
+	}
+
+	return nil
+}
+
+func sortCerts(certs []*x509.Certificate) (*x509.Certificate, []*x509.Certificate, error) {
+	subjects := make(map[string]*x509.Certificate)
+	used := make(map[string]bool)
+
+	for _, cert := range certs {
+		subjects[cert.Subject.CommonName] = cert
+		used[cert.Subject.CommonName] = false
+	}
+
+	var result []*x509.Certificate
+	for _, cert := range certs {
+		if used[cert.Subject.CommonName] {
+			continue
+		}
+
+		var sublist []*x509.Certificate
+		c := cert
+		for {
+			sublist = append(sublist, c)
+			used[c.Subject.CommonName] = true
+
+			if u, ok := used[c.Issuer.CommonName]; ok && !u {
+				if iss, ok := subjects[c.Issuer.CommonName]; ok {
+					c = iss
+				} else {
+					break
+				}
+			} else {
+				break
+			}
+		}
+
+		result = append(sublist, result...)
+	}
+
+	// Verify ...
+	for i := 0; i < len(result)-1; i++ {
+		if result[i].Issuer.CommonName != result[i+1].Subject.CommonName {
+			return nil, result, errors.New("Invalid chain")
+		}
+	}
+
+	return result[0], result, nil
 }

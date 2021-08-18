@@ -1,8 +1,11 @@
 package utils
 
 import (
+	"bytes"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 
@@ -86,5 +89,57 @@ func toPKCS1Public(c interface{}) (string, error) {
 
 	default:
 		return "", errors.New("Unsupported type to topkcs1public")
+	}
+}
+
+func toCERChain(c interface{}, direction ...int) (string, error) {
+	switch v := c.(type) {
+	case *keyvault.SecretResult:
+		return toCERChain(v.Chain, direction...)
+	case *keyvault.CertResult:
+		return toCERChain(v.Chain, direction...)
+	case []*x509.Certificate:
+		var buf bytes.Buffer
+
+		if len(direction) != 1 || direction[0] >= 0 {
+			for _, c := range v {
+				pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})
+			}
+		} else {
+			for i := len(v) - 1; i >= 0; i-- {
+				pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: v[i].Raw})
+			}
+		}
+
+		return buf.String(), nil
+	default:
+		return "", errors.New("Unsupported type to tocerchain")
+	}
+}
+
+func parsePEM(c interface{}) (*keyvault.ParsedSecret, error) {
+	switch v := c.(type) {
+	case string:
+		return keyvault.ParsePEMData([]byte(v))
+	case []byte:
+		return keyvault.ParsePEMData(v)
+	default:
+		return nil, errors.New("Unsupported type to parsepem")
+	}
+}
+
+func thumb(c interface{}) (string, error) {
+	switch v := c.(type) {
+	case *x509.Certificate:
+		h := sha1.New().Sum(v.Raw)
+		return hex.EncodeToString(h), nil
+	case *keyvault.CertResult:
+		return v.Thumbprint, nil
+	case *keyvault.SecretResult:
+		return thumb(v.Certificate)
+	case *keyvault.ParsedSecret:
+		return thumb(v.Certificate)
+	default:
+		return "", errors.New("Unsupported type to thumb")
 	}
 }

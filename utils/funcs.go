@@ -9,4 +9,6 @@ func Populate(m template.FuncMap) {
 	m["topkcs1public"] = toPKCS1Public
 	m["topkcs1private"] = toPKCS1Private
 	m["tocer"] = toCER
+	m["tocerchain"] = toCERChain
+	m["parsepem"] = parsePEM
 }
