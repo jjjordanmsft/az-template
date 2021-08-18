@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/pelletier/go-toml"
+	"github.com/BurntSushi/toml"
 	"github.com/pkg/errors"
 )
 
@@ -57,7 +57,7 @@ func loadConfig(file string) (*config, error) {
 
 	var cfg config
 	dec := toml.NewDecoder(fd)
-	if err := dec.Decode(&cfg); err != nil {
+	if _, err := dec.Decode(&cfg); err != nil {
 		return nil, errors.Wrap(err, "Failed to parse "+file)
 	}
 

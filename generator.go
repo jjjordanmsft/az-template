@@ -39,6 +39,7 @@ type Generator struct {
 // is the same as the last pass, then it won't be rewritten.  If the output
 // has changed, this will also invoke the Run command, if any was specified.
 func (gen *Generator) Generate() error {
+	start := time.Now()
 	log.Infof("Generating: %s", gen.Name)
 	dat, err := gen.Func()
 	if err != nil {
@@ -56,20 +57,22 @@ func (gen *Generator) Generate() error {
 	tmpfile := gen.OutputFile + ".pretem"
 	fd, err := os.OpenFile(tmpfile, os.O_TRUNC|os.O_RDWR|os.O_CREATE, gen.OutputMode)
 	if err != nil {
-		log.WithError(err).Infof("Error opening file: %s", gen.OutputFile)
+		log.WithError(err).Errorf("Error opening file: %s", gen.OutputFile)
 		return err
 	}
 
 	fd.Write(dat)
 	fd.Close()
 
-	if err := os.Remove(gen.OutputFile); err != nil {
-		log.WithError(err).Warn("Failed to remove original file (OK)")
+	if err := os.Remove(gen.OutputFile); err != nil && exists(gen.OutputFile) {
+		log.WithError(err).Warn("Failed to remove original file")
 	}
 	if err := os.Rename(tmpfile, gen.OutputFile); err != nil {
 		log.WithError(err).Errorf("Failed to update output file: %s", gen.OutputFile)
 		return err
 	}
+
+	log.Infof("File generated in %s", time.Since(start).Truncate(time.Millisecond))
 
 	if gen.Run != "" {
 		if err := gen.run(); err != nil {
@@ -115,7 +118,7 @@ func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Genera
 	}
 
 	return &Generator{
-		Name: fmt.Sprintf("Write secret '%s' to '%s'", cfg.Secret, cfg.Output),
+		Name: fmt.Sprintf("Write secret '%s' => '%s'", cfg.Secret, cfg.Output),
 		Func: func() ([]byte, error) {
 			b, _, err := kv.GetSecret(cfg.Secret)
 			if err != nil {
@@ -160,7 +163,7 @@ func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate) (*Generat
 	}
 
 	return &Generator{
-		Name: fmt.Sprintf("Process template '%s' to '%s'", cfg.Input, cfg.Output),
+		Name: fmt.Sprintf("Process template '%s' => '%s'", cfg.Input, cfg.Output),
 		Func: func() ([]byte, error) {
 			var buf bytes.Buffer
 			err := tmpl.Templates()[0].Execute(&buf, nil)
@@ -195,8 +198,14 @@ func setOwner(file, owner string) error {
 		return nil
 	}
 
-	uid := 0
-	gid := 0
+	// Get current ownership
+	usr, err := user.Current()
+	if err != nil {
+		return err
+	}
+
+	uid, _ := strconv.Atoi(usr.Uid)
+	gid, _ := strconv.Atoi(usr.Gid)
 
 	parts := strings.Split(owner, ":")
 	if u, err := strconv.Atoi(parts[0]); err == nil {
@@ -235,4 +244,9 @@ func getMode(mode *int, dflt int) os.FileMode {
 	} else {
 		return os.FileMode(*mode)
 	}
+}
+
+func exists(file string) bool {
+	_, err := os.Stat(file)
+	return err == nil
 }
