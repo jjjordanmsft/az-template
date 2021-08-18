@@ -131,8 +131,8 @@ func parsePEM(c interface{}) (*keyvault.ParsedSecret, error) {
 func thumb(c interface{}) (string, error) {
 	switch v := c.(type) {
 	case *x509.Certificate:
-		h := sha1.New().Sum(v.Raw)
-		return hex.EncodeToString(h), nil
+		h := sha1.Sum(v.Raw)
+		return hex.EncodeToString(h[:]), nil
 	case *keyvault.CertResult:
 		return v.Thumbprint, nil
 	case *keyvault.SecretResult:

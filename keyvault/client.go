@@ -17,13 +17,14 @@ import (
 
 // Client presents a simple interface to a keyvault client and provides caching.
 type Client struct {
-	name          string
-	baseUrl       string
-	client        keyvault.BaseClient
-	secretCache   map[string]*secretCacheItem
-	certCache     map[string]*certCacheItem
-	keyCache      map[string]*keyCacheItem
-	certListCache *certListCacheItem
+	name            string
+	baseUrl         string
+	client          keyvault.BaseClient
+	secretCache     map[string]*secretCacheItem
+	certCache       map[string]*certCacheItem
+	keyCache        map[string]*keyCacheItem
+	certListCache   *certListCacheItem
+	secretListCache *secretListCacheItem
 }
 
 type secretCacheItem struct {
@@ -55,6 +56,11 @@ type keyCacheItem struct {
 type certListCacheItem struct {
 	stale   bool
 	results []*keyvault.CertificateItem
+}
+
+type secretListCacheItem struct {
+	stale   bool
+	results []*keyvault.SecretItem
 }
 
 // Name returns the client name
@@ -195,6 +201,35 @@ func (c *Client) ListCertificates() ([]*keyvault.CertificateItem, error) {
 	}
 
 	return c.certListCache.results, nil
+}
+
+func (c *Client) ListSecrets() ([]*keyvault.SecretItem, error) {
+	if c.secretListCache == nil {
+		c.secretListCache = &secretListCacheItem{
+			stale: true,
+		}
+	}
+
+	if c.secretListCache.stale {
+		var results []*keyvault.SecretItem
+
+		lst, err := c.client.GetSecrets(context.Background(), c.baseUrl, nil)
+		if err != nil {
+			return results, err
+		}
+
+		for ; lst.NotDone(); lst.Next() {
+			for _, sec := range lst.Values() {
+				s := sec
+				results = append(results, &s)
+			}
+		}
+
+		c.secretListCache.results = results
+		c.secretListCache.stale = false
+	}
+
+	return c.secretListCache.results, nil
 }
 
 func (c *Client) getLatestSecretVersion(secret string) (string, error) {
@@ -352,7 +387,13 @@ func (c *Client) Invalidate() {
 		kcache.stale = true
 	}
 
-	c.certListCache.stale = true
+	if c.certListCache != nil {
+		c.certListCache.stale = true
+	}
+
+	if c.secretListCache != nil {
+		c.secretListCache.stale = true
+	}
 }
 
 func parseSecret(sec *keyvault.SecretBundle) *ParsedSecret {

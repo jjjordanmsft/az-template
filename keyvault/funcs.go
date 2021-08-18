@@ -41,6 +41,7 @@ type SecretListResult struct {
 	Version string
 	ID      string
 	Managed bool
+	Tags    map[string]string
 }
 
 // SecretResult is the type returned by the secret function.
@@ -67,6 +68,7 @@ type KeyResult struct {
 // Populate adds keyvault template functions to the specified FuncMap
 func (f *Funcs) Populate(m template.FuncMap) {
 	m["listcerts"] = f.listCertificates
+	m["listsecrets"] = f.listSecrets
 	m["secret"] = f.getSecret
 	m["cert"] = f.getCertificate
 	m["key"] = f.getKey
@@ -124,6 +126,31 @@ func (f *Funcs) listCertificates(kvname ...string) (results []*CertListResult, e
 			ID:         id,
 			Thumbprint: decodeThumbprint(*ci.X509Thumbprint),
 			Tags:       cvtTags(ci.Tags),
+		})
+	}
+
+	return
+}
+
+func (f *Funcs) listSecrets(kvname ...string) (results []*SecretListResult, err error) {
+	cl, err := f.client(kvname...)
+	if err != nil {
+		return
+	}
+
+	lst, err := cl.ListSecrets()
+	if err != nil {
+		return
+	}
+
+	for _, si := range lst {
+		id, name, version := splitID(si.ID)
+		results = append(results, &SecretListResult{
+			Name:    name,
+			Version: version,
+			ID:      id,
+			Managed: si.Managed != nil && *si.Managed,
+			Tags:    cvtTags(si.Tags),
 		})
 	}
 

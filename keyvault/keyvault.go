@@ -51,13 +51,14 @@ func (kv *Keyvaults) GetClient(kvname string) (*Client, error) {
 	client.Authorizer = kv.authorizer
 
 	kvc := &Client{
-		name:          kvname,
-		baseUrl:       fmt.Sprintf("https://%s.%s", strings.ToLower(kvname), kv.env.KeyVaultDNSSuffix),
-		client:        client,
-		secretCache:   make(map[string]*secretCacheItem),
-		certCache:     make(map[string]*certCacheItem),
-		keyCache:      make(map[string]*keyCacheItem),
-		certListCache: nil,
+		name:            kvname,
+		baseUrl:         fmt.Sprintf("https://%s.%s", strings.ToLower(kvname), kv.env.KeyVaultDNSSuffix),
+		client:          client,
+		secretCache:     make(map[string]*secretCacheItem),
+		certCache:       make(map[string]*certCacheItem),
+		keyCache:        make(map[string]*keyCacheItem),
+		certListCache:   nil,
+		secretListCache: nil,
 	}
 
 	kv.clients[kvname] = kvc

@@ -11,4 +11,5 @@ func Populate(m template.FuncMap) {
 	m["tocer"] = toCER
 	m["tocerchain"] = toCERChain
 	m["parsepem"] = parsePEM
+	m["thumb"] = thumb
 }
