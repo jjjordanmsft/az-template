@@ -3,8 +3,12 @@ package keyvault
 import (
 	"context"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/pkcs12"
 
 	"github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault"
 	"github.com/Azure/go-autorest/autorest/date"
@@ -18,6 +22,7 @@ type Client struct {
 	client        keyvault.BaseClient
 	secretCache   map[string]*secretCacheItem
 	certCache     map[string]*certCacheItem
+	keyCache      map[string]*keyCacheItem
 	certListCache *certListCacheItem
 }
 
@@ -25,6 +30,12 @@ type secretCacheItem struct {
 	stale          bool
 	currentVersion string
 	versions       map[string]*keyvault.SecretBundle
+	parsed         map[string]*parsedSecret
+}
+
+type parsedSecret struct {
+	Certificate *x509.Certificate
+	Key         interface{}
 }
 
 type certCacheItem struct {
@@ -32,6 +43,12 @@ type certCacheItem struct {
 	currentVersion string
 	versions       map[string]*keyvault.CertificateBundle
 	parsed         map[string]*x509.Certificate
+}
+
+type keyCacheItem struct {
+	stale          bool
+	currentVersion string
+	versions       map[string]*keyvault.KeyBundle
 }
 
 type certListCacheItem struct {
@@ -45,12 +62,13 @@ func (c *Client) Name() string {
 }
 
 // GetSecret retrieves the latest version of the specified secret
-func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, error) {
+func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, *parsedSecret, error) {
 	cache, ok := c.secretCache[secret]
 	if !ok {
 		cache = &secretCacheItem{
 			stale:    true,
 			versions: make(map[string]*keyvault.SecretBundle),
+			parsed:   make(map[string]*parsedSecret),
 		}
 
 		c.secretCache[secret] = cache
@@ -59,7 +77,7 @@ func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, error) {
 	if cache.stale {
 		ver, err := c.getLatestSecretVersion(secret)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		cache.currentVersion = ver
@@ -67,12 +85,14 @@ func (c *Client) GetSecret(secret string) (*keyvault.SecretBundle, error) {
 	}
 
 	if bundle, ok := cache.versions[cache.currentVersion]; ok {
-		return bundle, nil
+		return bundle, cache.parsed[cache.currentVersion], nil
 	} else if bundle, err := c.client.GetSecret(context.Background(), c.baseUrl, secret, cache.currentVersion); err != nil {
-		return nil, err
+		return nil, nil, err
 	} else {
+		parsed := parseSecret(&bundle)
 		cache.versions[cache.currentVersion] = &bundle
-		return &bundle, nil
+		cache.parsed[cache.currentVersion] = parsed
+		return &bundle, parsed, nil
 	}
 }
 
@@ -109,6 +129,37 @@ func (c *Client) GetCertificate(cert string) (*keyvault.CertificateBundle, *x509
 		cache.versions[cache.currentVersion] = &bundle
 		cache.parsed[cache.currentVersion] = xcert
 		return &bundle, xcert, nil
+	}
+}
+
+func (c *Client) GetKey(key string) (*keyvault.KeyBundle, error) {
+	cache, ok := c.keyCache[key]
+	if !ok {
+		kci := &keyCacheItem{
+			stale:    true,
+			versions: make(map[string]*keyvault.KeyBundle),
+		}
+
+		c.keyCache[key] = kci
+	}
+
+	if cache.stale {
+		ver, err := c.getLatestKeyVersion(key)
+		if err != nil {
+			return nil, err
+		}
+
+		cache.currentVersion = ver
+		cache.stale = false
+	}
+
+	if bundle, ok := cache.versions[cache.currentVersion]; ok {
+		return bundle, nil
+	} else if bundle, err := c.client.GetKey(context.Background(), c.baseUrl, key, cache.currentVersion); err != nil {
+		return nil, err
+	} else {
+		cache.versions[cache.currentVersion] = &bundle
+		return &bundle, nil
 	}
 }
 
@@ -220,19 +271,6 @@ func (c *Client) getLatestCertificateVersion(cert string) (string, error) {
 	return idVersion, nil
 }
 
-// Invalidate clears all caches for this client.
-func (c *Client) Invalidate() {
-	for _, scache := range c.secretCache {
-		scache.stale = true
-	}
-
-	for _, ccache := range c.certCache {
-		ccache.stale = true
-	}
-
-	c.certListCache.stale = true
-}
-
 func certDate(itm keyvault.CertificateItem) time.Duration {
 	atr := itm.Attributes
 	if atr.Created != nil && atr.Updated != nil {
@@ -247,5 +285,116 @@ func certDate(itm keyvault.CertificateItem) time.Duration {
 		return (*atr.Updated).Duration()
 	} else {
 		return date.UnixTime(date.UnixEpoch()).Duration()
+	}
+}
+
+func (c *Client) getLatestKeyVersion(key string) (string, error) {
+	var maxresults int32 = 20
+	lst, err := c.client.GetKeyVersions(context.Background(), c.baseUrl, key, &maxresults)
+	if err != nil {
+		return "", errors.Wrap(err, "Failed to list key versions")
+	}
+
+	var latest keyvault.KeyItem
+	first := true
+	for ; lst.NotDone(); lst.Next() {
+		for _, k := range lst.Values() {
+			if first {
+				first = false
+				latest = k
+			} else if keyDate(latest) < keyDate(k) {
+				latest = k
+			}
+		}
+	}
+
+	if first {
+		return "", errors.New("No keys returned")
+	}
+
+	idParts := strings.Split(*latest.Kid, "/")
+	idVersion := idParts[len(idParts)-1]
+
+	return idVersion, nil
+}
+
+func keyDate(itm keyvault.KeyItem) time.Duration {
+	atr := itm.Attributes
+	if atr.Created != nil && atr.Updated != nil {
+		if atr.Created.Duration() > atr.Updated.Duration() {
+			return (*atr.Created).Duration()
+		} else {
+			return (*atr.Updated).Duration()
+		}
+	} else if atr.Created != nil {
+		return (*atr.Created).Duration()
+	} else if atr.Updated != nil {
+		return (*atr.Updated).Duration()
+	} else {
+		return date.UnixTime(date.UnixEpoch()).Duration()
+	}
+}
+
+// Invalidate clears all caches for this client.
+func (c *Client) Invalidate() {
+	for _, scache := range c.secretCache {
+		scache.stale = true
+	}
+
+	for _, ccache := range c.certCache {
+		ccache.stale = true
+	}
+
+	for _, kcache := range c.keyCache {
+		kcache.stale = true
+	}
+
+	c.certListCache.stale = true
+}
+
+func parseSecret(sec *keyvault.SecretBundle) *parsedSecret {
+	res := &parsedSecret{}
+	if raw, err := base64.StdEncoding.DecodeString(*sec.Value); err == nil {
+		pk, crt, err := pkcs12.Decode(raw, "")
+		if err == nil {
+			res.Certificate = crt
+			res.Key = pk
+		}
+	} else {
+		for _, p := range readPEMs([]byte(*sec.Value)) {
+			switch p.Type {
+			case "PRIVATE KEY":
+				if k, err := x509.ParsePKCS8PrivateKey(p.Bytes); err == nil {
+					res.Key = k
+				}
+			case "RSA PRIVATE KEY":
+				if k, err := x509.ParsePKCS1PrivateKey(p.Bytes); err == nil {
+					res.Key = k
+				}
+			case "EC PRIVATE KEY":
+				if k, err := x509.ParseECPrivateKey(p.Bytes); err == nil {
+					res.Key = k
+				}
+			case "CERTIFICATE":
+				if c, err := x509.ParseCertificate(p.Bytes); err == nil {
+					res.Certificate = c
+				}
+			}
+		}
+	}
+
+	return res
+}
+
+func readPEMs(data []byte) []*pem.Block {
+	var result []*pem.Block
+	for {
+		p, rest := pem.Decode(data)
+		if p == nil {
+			return result
+		}
+
+		result = append(result, p)
+		data = rest
 	}
 }

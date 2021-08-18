@@ -22,7 +22,7 @@ type Keyvaults struct {
 // Azure environment
 func NewKeyvaults(env azure.Environment) (*Keyvaults, error) {
 	msicfg := auth.MSIConfig{
-		Resource: env.KeyVaultEndpoint,
+		Resource: strings.TrimSuffix(env.KeyVaultEndpoint, "/"),
 	}
 
 	authorizer, err := msicfg.Authorizer()
@@ -56,6 +56,7 @@ func (kv *Keyvaults) GetClient(kvname string) (*Client, error) {
 		client:        client,
 		secretCache:   make(map[string]*secretCacheItem),
 		certCache:     make(map[string]*certCacheItem),
+		keyCache:      make(map[string]*keyCacheItem),
 		certListCache: nil,
 	}
 

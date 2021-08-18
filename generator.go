@@ -20,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/jjjordanmsft/az-template/keyvault"
+	"github.com/jjjordanmsft/az-template/utils"
 )
 
 // Generator encapsulates the process for generating an output file.
@@ -116,7 +117,7 @@ func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Genera
 	return &Generator{
 		Name: fmt.Sprintf("Write secret '%s' to '%s'", cfg.Secret, cfg.Output),
 		Func: func() ([]byte, error) {
-			b, err := kv.GetSecret(cfg.Secret)
+			b, _, err := kv.GetSecret(cfg.Secret)
 			if err != nil {
 				return []byte{}, errors.Wrap(err, fmt.Sprintf("Error when fetching '%s' from '%s'", cfg.Secret, kv.Name))
 			}
@@ -141,11 +142,21 @@ func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate) (*Generat
 	name = name[:len(name)-len(path.Ext(name))]
 	fmap := sprig.TxtFuncMap()
 	keyvault.GetFuncs(ctx).Populate(fmap)
+	utils.Populate(fmap)
 	tmpl := template.New(name).Funcs(fmap)
 
-	tmpl, err := tmpl.ParseFiles(cfg.Input)
-	if err != nil {
-		return nil, err
+	if cfg.Inline != "" {
+		var err error
+		tmpl, err = tmpl.Parse(cfg.Inline)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		tmpl, err = tmpl.ParseFiles(cfg.Input)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &Generator{

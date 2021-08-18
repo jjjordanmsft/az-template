@@ -1,6 +1,7 @@
 package keyvault
 
 import (
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"net/url"
@@ -14,8 +15,8 @@ type Funcs struct {
 	TemplateContext
 }
 
-// certListResult is the type returned by the listcerts function.
-type certListResult struct {
+// CertListResult is the type returned by the listcerts function.
+type CertListResult struct {
 	Name       string
 	Thumbprint string
 	Version    string
@@ -23,30 +24,40 @@ type certListResult struct {
 	Tags       map[string]string
 }
 
-// certResult is the type returned by the cert function.
-type certResult struct {
+// CertResult is the type returned by the cert function.
+type CertResult struct {
 	Name        string
 	Thumbprint  string
 	Version     string
 	ID          string
-	Certificate interface{}
+	Certificate *x509.Certificate
 	Tags        map[string]string
 }
 
-// secretListResult is the type returned by the (non-existent) listsecrets function.
-type secretListResult struct {
+// SecretListResult is the type returned by the (non-existent) listsecrets function.
+type SecretListResult struct {
 	Name    string
 	Version string
 	ID      string
 }
 
-// secretResult is the type returned by the secret function.
-type secretResult struct {
+// SecretResult is the type returned by the secret function.
+type SecretResult struct {
+	Name        string
+	Version     string
+	ID          string
+	Value       string
+	Certificate *x509.Certificate
+	Key         interface{}
+	Tags        map[string]string
+}
+
+type KeyResult struct {
 	Name    string
 	Version string
-	ID      string
-	Value   string
-	Tags    map[string]string
+	//ID string
+	Value interface{}
+	Tags  map[string]string
 }
 
 // Populate adds keyvault template functions to the specified FuncMap
@@ -54,6 +65,7 @@ func (f *Funcs) Populate(m template.FuncMap) {
 	m["listcerts"] = f.listCertificates
 	m["secret"] = f.getSecret
 	m["cert"] = f.getCertificate
+	m["key"] = f.getKey
 }
 
 func (f *Funcs) client(kvname ...string) (*Client, error) {
@@ -64,28 +76,30 @@ func (f *Funcs) client(kvname ...string) (*Client, error) {
 	}
 }
 
-func (f *Funcs) getSecret(secret string, kvname ...string) (*secretResult, error) {
+func (f *Funcs) getSecret(secret string, kvname ...string) (*SecretResult, error) {
 	cl, err := f.client(kvname...)
 	if err != nil {
 		return nil, err
 	}
 
-	b, err := cl.GetSecret(secret)
+	b, p, err := cl.GetSecret(secret)
 	if err != nil {
 		return nil, err
 	}
 
 	id, name, version := splitID(b.ID)
-	return &secretResult{
-		Name:    name,
-		Version: version,
-		ID:      id,
-		Value:   *b.Value,
-		Tags:    cvtTags(b.Tags),
+	return &SecretResult{
+		Name:        name,
+		Version:     version,
+		ID:          id,
+		Value:       *b.Value,
+		Tags:        cvtTags(b.Tags),
+		Certificate: p.Certificate,
+		Key:         p.Key,
 	}, nil
 }
 
-func (f *Funcs) listCertificates(kvname ...string) (results []*certListResult, err error) {
+func (f *Funcs) listCertificates(kvname ...string) (results []*CertListResult, err error) {
 	cl, err := f.client(kvname...)
 	if err != nil {
 		return
@@ -98,7 +112,7 @@ func (f *Funcs) listCertificates(kvname ...string) (results []*certListResult, e
 
 	for _, ci := range lst {
 		id, name, version := splitID(ci.ID)
-		results = append(results, &certListResult{
+		results = append(results, &CertListResult{
 			Name:       name,
 			Version:    version,
 			ID:         id,
@@ -110,7 +124,7 @@ func (f *Funcs) listCertificates(kvname ...string) (results []*certListResult, e
 	return
 }
 
-func (f *Funcs) getCertificate(cert string, kvname ...string) (*certResult, error) {
+func (f *Funcs) getCertificate(cert string, kvname ...string) (*CertResult, error) {
 	cl, err := f.client(kvname...)
 	if err != nil {
 		return nil, err
@@ -122,13 +136,30 @@ func (f *Funcs) getCertificate(cert string, kvname ...string) (*certResult, erro
 	}
 
 	id, name, version := splitID(b.ID)
-	return &certResult{
+	return &CertResult{
 		Name:        name,
 		Thumbprint:  decodeThumbprint(*b.X509Thumbprint),
 		Version:     version,
 		ID:          id,
 		Certificate: p,
 		Tags:        cvtTags(b.Tags),
+	}, nil
+}
+
+func (f *Funcs) getKey(name string, kvname ...string) (*KeyResult, error) {
+	cl, err := f.client(kvname...)
+	if err != nil {
+		return nil, err
+	}
+
+	k, err := cl.GetKey(name)
+	//id, name, version := splitID(k.Kid)
+	return &KeyResult{
+		Name: name,
+		//Version: version,
+		//id: k.Kid,
+		Value: k.Key,
+		Tags:  cvtTags(k.Tags),
 	}, nil
 }
 

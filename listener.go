@@ -52,7 +52,7 @@ func (l *listener) getPassword(cfg *config, ctx keyvault.TemplateContext) error 
 	}
 
 	pwkey := *cfg.Password
-	b, err := cl.GetSecret(pwkey)
+	b, _, err := cl.GetSecret(pwkey)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func (l *listener) getPassword(cfg *config, ctx keyvault.TemplateContext) error 
 			t := time.Tick(time.Duration(*cfg.Period))
 			for {
 				<-t
-				b, err := cl.GetSecret(pwkey)
+				b, _, err := cl.GetSecret(pwkey)
 				if err != nil {
 					log.WithError(err).Warn("Failed to refresh password")
 				} else {

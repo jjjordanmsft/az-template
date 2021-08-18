@@ -37,6 +37,7 @@ type configFile struct {
 type configTemplate struct {
 	Keyvault   string
 	Input      string
+	Inline     string
 	Output     string
 	Mode       *int
 	Owner      string
