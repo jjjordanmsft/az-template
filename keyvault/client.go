@@ -522,5 +522,9 @@ func sortCerts(certs []*x509.Certificate) (*x509.Certificate, []*x509.Certificat
 		}
 	}
 
+	if len(result) == 0 {
+		return nil, result, nil
+	}
+
 	return result[0], result, nil
 }
