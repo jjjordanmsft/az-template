@@ -76,16 +76,11 @@ func (t *Timer) Trigger() {
 func (t *Timer) run() {
 	mn := time.NewTimer(5 * time.Minute)
 	mx := time.NewTimer(5 * time.Minute)
+	mn.Stop()
+	mx.Stop()
 
 	for {
 		<-t.trigger
-		if !mn.Stop() {
-			<-mn.C
-		}
-		if !mx.Stop() {
-			<-mx.C
-		}
-
 		mn.Reset(t.min)
 		mx.Reset(t.max)
 
@@ -99,10 +94,21 @@ func (t *Timer) run() {
 				mn.Reset(t.min)
 
 			case <-mn.C:
+				if !mx.Stop() {
+					<-mx.C
+				}
+				
+				break duty
+				
 			case <-mx.C:
-				t.result <- struct{}{}
+				if !mn.Stop() {
+					<-mn.C
+				}
+				
 				break duty
 			}
 		}
+		
+		t.result <- struct{}{}
 	}
 }
