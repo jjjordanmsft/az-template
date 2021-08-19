@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/jjjordanmsft/az-template/keyvault"
@@ -18,7 +19,7 @@ type listener struct {
 // startListener creates an HTTP server that sends back pings on the specified channel
 // when it is hit with the password specified in the config.
 func startListener(cfg *config, ctx keyvault.TemplateContext, ping chan struct{}) error {
-	if cfg.Listen == nil {
+	if cfg.Socket == nil {
 		return nil
 	}
 
@@ -28,11 +29,23 @@ func startListener(cfg *config, ctx keyvault.TemplateContext, ping chan struct{}
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/ping", l)
+	mux.Handle("/", l)
 
-	listener, err := net.Listen("unix", *cfg.Listen)
+	listener, err := net.Listen("unix", *cfg.Socket)
 	if err != nil {
 		return err
+	}
+
+	if cfg.SocketMode != nil {
+		if err := os.Chmod(*cfg.Socket, os.FileMode(*cfg.SocketMode)); err != nil {
+			return err
+		}
+	}
+
+	if cfg.SocketOwner != nil {
+		if err := setOwner(*cfg.Socket, *cfg.SocketOwner); err != nil {
+			return err
+		}
 	}
 
 	server := http.Server{Handler: mux}
@@ -42,7 +55,7 @@ func startListener(cfg *config, ctx keyvault.TemplateContext, ping chan struct{}
 
 // getPassword fetches a password from a keyvault, and refreshes at the specified period.
 func (l *listener) getPassword(cfg *config, ctx keyvault.TemplateContext) error {
-	if cfg.Password == nil || cfg.Keyvault == nil {
+	if cfg.PasswordSecret == nil || cfg.Keyvault == nil {
 		return nil
 	}
 
@@ -51,7 +64,7 @@ func (l *listener) getPassword(cfg *config, ctx keyvault.TemplateContext) error 
 		return err
 	}
 
-	pwkey := *cfg.Password
+	pwkey := *cfg.PasswordSecret
 	b, _, err := cl.GetSecret(pwkey)
 	if err != nil {
 		return err

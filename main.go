@@ -67,9 +67,9 @@ func main() {
 
 	// Process all outputs immediately. Exit if period/listen unspecified.
 	success := generateAll(keyvaults, generators)
-	if cfg.Period == nil && cfg.Listen == nil {
+	if cfg.Period == nil && cfg.Socket == nil {
 		// No background processes
-		log.Info("No listen/wait period configured, exiting.")
+		log.Info("No socket/wait period configured, exiting.")
 		if success {
 			os.Exit(0)
 		} else {

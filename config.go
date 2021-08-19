@@ -10,39 +10,41 @@ import (
 
 // config represents the top-level object from the config TOML
 type config struct {
-	Period          *duration
-	Keyvault        *string
-	Listen          *string
-	Password        *string
-	RunTimeout      *duration
-	Environment     *string
-	EnvironmentFile *string
+	Period          *duration `toml:"period"`
+	Keyvault        *string   `toml:"keyvault"`
+	Socket          *string   `toml:"socket"`
+	SocketMode      *int      `toml:"socketmode"`
+	SocketOwner     *string   `toml:"socketowner"`
+	PasswordSecret  *string   `toml:"passwordsecret"`
+	RunTimeout      *duration `toml:"runtimeout"`
+	Environment     *string   `toml:"environment"`
+	EnvironmentFile *string   `toml:"environmentfile"`
 
-	File     []configFile
-	Template []configTemplate
+	File     []configFile     `toml:"file"`
+	Template []configTemplate `toml:"template"`
 }
 
 // configFile directs this to write a secret directly to output
 type configFile struct {
-	Keyvault   string
-	Secret     string
-	Output     string
-	Mode       *int
-	Owner      string
-	Run        string
-	RunTimeout *duration
+	Keyvault   string    `toml:"keyvault"`
+	Secret     string    `toml:"secret"`
+	Output     string    `toml:"output"`
+	Mode       *int      `toml:"mode"`
+	Owner      string    `toml:"owner"`
+	Run        string    `toml:"run"`
+	RunTimeout *duration `toml:"runtimeout"`
 }
 
 // configTemplate directs this to process a text template
 type configTemplate struct {
-	Keyvault   string
-	Input      string
-	Inline     string
-	Output     string
-	Mode       *int
-	Owner      string
-	Run        string
-	RunTimeout *duration
+	Keyvault   string    `toml:"keyvault"`
+	Input      string    `toml:"input"`
+	Inline     string    `toml:"inline"`
+	Output     string    `toml:"output"`
+	Mode       *int      `toml:"mode"`
+	Owner      string    `toml:"owner"`
+	Run        string    `toml:"run"`
+	RunTimeout *duration `toml:"runtimeout"`
 }
 
 // duration wraps time.Duration in a manner that can be parsed
