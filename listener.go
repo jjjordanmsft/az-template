@@ -9,6 +9,7 @@ import (
 	"github.com/jjjordanmsft/az-template/keyvault"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 )
 
 type listener struct {
