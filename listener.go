@@ -32,7 +32,7 @@ func startListener(cfg *config, ctx keyvault.TemplateContext, ping chan struct{}
 	mux.Handle("/", l)
 
 	if exists(*cfg.Socket) {
-		if err := os.Unlink(*cfg.Socket); err != nil {
+		if err := os.Remove(*cfg.Socket); err != nil {
 			return errors.Wrap(err, "Failed to delete socket")
 		}
 	}
