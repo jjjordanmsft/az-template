@@ -31,6 +31,12 @@ func startListener(cfg *config, ctx keyvault.TemplateContext, ping chan struct{}
 	mux := http.NewServeMux()
 	mux.Handle("/", l)
 
+	if exists(*cfg.Socket) {
+		if err := os.Unlink(*cfg.Socket); err != nil {
+			return errors.Wrap(err, "Failed to delete socket")
+		}
+	}
+
 	listener, err := net.Listen("unix", *cfg.Socket)
 	if err != nil {
 		return err
