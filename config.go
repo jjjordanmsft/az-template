@@ -45,6 +45,8 @@ type configTemplate struct {
 	Owner      string    `toml:"owner"`
 	Run        string    `toml:"run"`
 	RunTimeout *duration `toml:"runtimeout"`
+
+	Args map[string]interface{} `toml:"args"`
 }
 
 // duration wraps time.Duration in a manner that can be parsed

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"syscall"
 	"time"
 
@@ -29,6 +30,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	basePath := path.Base(os.Args[1])
+
 	// Find Azure environment
 	var azenv azure.Environment
 	if cfg.Environment != nil {
@@ -40,7 +43,7 @@ func main() {
 
 		azenv = env
 	} else if cfg.EnvironmentFile != nil {
-		env, err := azure.EnvironmentFromFile(*cfg.EnvironmentFile)
+		env, err := azure.EnvironmentFromFile(relPath(basePath, *cfg.EnvironmentFile))
 		if err != nil {
 			log.WithError(err).Fatalf("Error loading azure environment from file '%s'", *cfg.EnvironmentFile)
 			os.Exit(1)
@@ -59,7 +62,7 @@ func main() {
 	}
 
 	// Create Generators for each step from config file
-	generators, err := loadGenerators(cfg, keyvaults)
+	generators, err := loadGenerators(cfg, keyvaults, basePath)
 	if err != nil {
 		log.WithError(err).Fatal("Error loading generators")
 		os.Exit(1)
@@ -108,6 +111,7 @@ func main() {
 			log.Infof("Signal %s received", sig.String())
 			switch sig {
 			case syscall.SIGHUP:
+				reloadGenerators(generators)
 				generateAll(keyvaults, generators)
 
 			case syscall.SIGINT, syscall.SIGTERM:
@@ -142,7 +146,7 @@ func generateAll(kv *keyvault.Keyvaults, generators []*Generator) bool {
 }
 
 // loadGenerators creates generators for each output in the config
-func loadGenerators(cfg *config, kv *keyvault.Keyvaults) ([]*Generator, error) {
+func loadGenerators(cfg *config, kv *keyvault.Keyvaults, basePath string) ([]*Generator, error) {
 	var baseCtx keyvault.TemplateContext = kv
 	if cfg.Keyvault != nil {
 		baseCtx = keyvault.WrapContext(baseCtx, *cfg.Keyvault)
@@ -151,7 +155,7 @@ func loadGenerators(cfg *config, kv *keyvault.Keyvaults) ([]*Generator, error) {
 	var results []*Generator
 
 	for _, f := range cfg.File {
-		gen, err := downloadSecretToFile(baseCtx, f)
+		gen, err := downloadSecretToFile(baseCtx, f, basePath)
 		if err != nil {
 			return results, err
 		}
@@ -160,7 +164,7 @@ func loadGenerators(cfg *config, kv *keyvault.Keyvaults) ([]*Generator, error) {
 	}
 
 	for _, t := range cfg.Template {
-		gen, err := processTemplate(baseCtx, t)
+		gen, err := processTemplate(baseCtx, t, basePath)
 		if err != nil {
 			return results, err
 		}
@@ -178,7 +182,20 @@ func loadGenerators(cfg *config, kv *keyvault.Keyvaults) ([]*Generator, error) {
 		if gen.RunTimeout == nil {
 			gen.RunTimeout = runTimeout
 		}
+
+		if err := gen.Reload(); err != nil {
+			return results, err
+		}
 	}
 
 	return results, nil
+}
+
+func reloadGenerators(gens []*Generator) {
+	for _, gen := range gens {
+		err := gen.Reload()
+		if err != nil {
+			log.WithError(err).Warnf("Error reloading template for generator '%s'", gen.OutputFile)
+		}
+	}
 }

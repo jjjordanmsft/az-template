@@ -23,10 +23,14 @@ import (
 	"github.com/jjjordanmsft/az-template/utils"
 )
 
+type GeneratorFunc = func() ([]byte, error)
+type GeneratorLoader = func() (GeneratorFunc, error)
+
 // Generator encapsulates the process for generating an output file.
 type Generator struct {
 	Name        string
-	Func        func() ([]byte, error)
+	Func        GeneratorFunc
+	Loader      GeneratorLoader
 	OutputFile  string
 	OutputMode  os.FileMode
 	OutputOwner string
@@ -85,6 +89,16 @@ func (gen *Generator) Generate() error {
 	return nil
 }
 
+func (gen *Generator) Reload() error {
+	f, err := gen.Loader()
+	if err != nil {
+		return err
+	}
+
+	gen.Func = f
+	return nil
+}
+
 // run invokes the Run command associated with this output.
 func (gen *Generator) run() error {
 	shell := os.Getenv("SHELL")
@@ -111,7 +125,7 @@ func (gen *Generator) run() error {
 }
 
 // downloadSecretToFile creates a Generator for a full file-generation step.
-func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Generator, error) {
+func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile, basePath string) (*Generator, error) {
 	kv, err := ctx.GetClient(cfg.Keyvault)
 	if err != nil {
 		return nil, err
@@ -119,15 +133,17 @@ func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Genera
 
 	return &Generator{
 		Name: fmt.Sprintf("Write secret '%s' => '%s'", cfg.Secret, cfg.Output),
-		Func: func() ([]byte, error) {
-			b, _, err := kv.GetSecret(cfg.Secret)
-			if err != nil {
-				return []byte{}, errors.Wrap(err, fmt.Sprintf("Error when fetching '%s' from '%s'", cfg.Secret, kv.Name))
-			}
+		Loader: func() (GeneratorFunc, error) {
+			return func() ([]byte, error) {
+				b, _, err := kv.GetSecret(cfg.Secret)
+				if err != nil {
+					return []byte{}, errors.Wrap(err, fmt.Sprintf("Error when fetching '%s' from '%s'", cfg.Secret, kv.Name))
+				}
 
-			return []byte(*b.Value), nil
+				return []byte(*b.Value), nil
+			}, nil
 		},
-		OutputFile:  cfg.Output,
+		OutputFile:  relPath(basePath, cfg.Output),
 		OutputMode:  getMode(cfg.Mode, 0600),
 		OutputOwner: cfg.Owner,
 		Run:         cfg.Run,
@@ -136,7 +152,7 @@ func downloadSecretToFile(ctx keyvault.TemplateContext, cfg configFile) (*Genera
 }
 
 // processTemplate creates a Generator for a template processing step.
-func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate) (*Generator, error) {
+func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate, basePath string) (*Generator, error) {
 	if cfg.Keyvault != "" {
 		ctx = keyvault.WrapContext(ctx, cfg.Keyvault)
 	}
@@ -146,30 +162,33 @@ func processTemplate(ctx keyvault.TemplateContext, cfg configTemplate) (*Generat
 	fmap := sprig.TxtFuncMap()
 	keyvault.GetFuncs(ctx).Populate(fmap)
 	utils.Populate(fmap)
-	tmpl := template.New(name).Funcs(fmap)
-
-	if cfg.Inline != "" {
-		var err error
-		tmpl, err = tmpl.Parse(cfg.Inline)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		var err error
-		tmpl, err = tmpl.ParseFiles(cfg.Input)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	return &Generator{
 		Name: fmt.Sprintf("Process template '%s' => '%s'", cfg.Input, cfg.Output),
-		Func: func() ([]byte, error) {
-			var buf bytes.Buffer
-			err := tmpl.Templates()[0].Execute(&buf, nil)
-			return buf.Bytes(), err
+		Loader: func() (GeneratorFunc, error) {
+			tmpl := template.New(name).Funcs(fmap)
+
+			if cfg.Inline != "" {
+				var err error
+				tmpl, err = tmpl.Parse(cfg.Inline)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				var err error
+				tmpl, err = tmpl.ParseFiles(relPath(basePath, cfg.Input))
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			return func() ([]byte, error) {
+				var buf bytes.Buffer
+				err := tmpl.Templates()[0].Execute(&buf, cfg.Args)
+				return buf.Bytes(), err
+			}, nil
 		},
-		OutputFile:  cfg.Output,
+		OutputFile:  relPath(basePath, cfg.Output),
 		OutputMode:  getMode(cfg.Mode, 0600),
 		OutputOwner: cfg.Owner,
 		Run:         cfg.Run,
@@ -249,4 +268,12 @@ func getMode(mode *int, dflt int) os.FileMode {
 func exists(file string) bool {
 	_, err := os.Stat(file)
 	return err == nil
+}
+
+func relPath(base, p string) string {
+	if path.IsAbs(p) {
+		return p
+	} else {
+		return path.Join(base, p)
+	}
 }
