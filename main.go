@@ -30,7 +30,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	basePath := path.Base(os.Args[1])
+	basePath := path.Dir(os.Args[1])
 
 	// Find Azure environment
 	var azenv azure.Environment
