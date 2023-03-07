@@ -5,7 +5,7 @@ require (
 	github.com/Azure/azure-sdk-for-go v25.1.0+incompatible
 	github.com/Azure/go-autorest v11.5.0+incompatible
 	github.com/BurntSushi/toml v0.4.1
-	github.com/Masterminds/goutils v1.1.0 // indirect
+	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/Masterminds/sprig v2.22.0+incompatible
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
